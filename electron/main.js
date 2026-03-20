@@ -6,7 +6,7 @@ import Store from "electron-store";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isDev = !app.isPackaged;
+const isDev = process.argv.includes("--dev");
 const store = new Store();
 
 function createWindow() {
@@ -24,7 +24,7 @@ function createWindow() {
   if (isDev) {
     win.loadURL("http://127.0.0.1:5173");
   } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    win.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
   }
 }
 
