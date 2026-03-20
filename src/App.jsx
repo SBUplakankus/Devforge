@@ -2002,7 +2002,7 @@ export default function App() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [newProjModal, setNewProjModal] = useState(false);
   const [newProjName,  setNewProjName]  = useState("");
-  const [newProjAccent,set NewProjAccent]= useState("#6366f1");
+  const [newProjAccent, setNewProjAccent] = useState("#6366f1");
 
   const timer = useTimer();
 
