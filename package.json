@@ -6,9 +6,10 @@
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron . --dev\"",
     "build": "vite build",
-    "start": "electron .",
+    "dist": "npm run build && electron-builder --win --publish never",
+    "start": "npm run build && electron .",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -21,7 +22,25 @@
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
     "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
     "vite": "^8.0.1",
     "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.devforge.app",
+    "productName": "Devforge",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   }
 }

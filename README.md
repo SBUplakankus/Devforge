@@ -27,8 +27,14 @@ This starts Vite for the renderer and launches Electron.
 npm run build
 ```
 
-## Run Electron against the current project
+## Run Electron using production assets
 
 ```bash
 npm run start
+```
+
+## Build Windows release package (.exe)
+
+```bash
+npm run dist
 ```
