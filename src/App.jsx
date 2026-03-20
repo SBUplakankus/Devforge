@@ -115,6 +115,22 @@ const formatDayLabel = day => isIsoDay(day)
   : "";
 const todayLbl = () => formatDayLabel(todayDay());
 const fmtDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short" }) : "";
+const fmtDuration = secs => {
+  const s = Math.max(0, Math.round(Number(secs) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${ss}s`;
+};
+const fmtSecs = secs => {
+  const s = Math.max(0, Math.round(Number(secs) || 0));
+  const h = String(Math.floor(s / 3600)).padStart(2, "0");
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${h}:${m}:${ss}`;
+};
 const isOverdue = d => d && new Date(d + "T23:59:59") < new Date();
 
 const dayDiff = (a, b) => {
@@ -180,6 +196,16 @@ const sanitizeUrl = raw => {
   } catch {
     return "";
   }
+};
+
+const hexToRgb = hex => {
+  const clean = String(hex || "").trim().replace("#", "");
+  if (!/^[\da-fA-F]{6}$/.test(clean)) return "124, 106, 247";
+  const int = Number.parseInt(clean, 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `${r}, ${g}, ${b}`;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -796,22 +822,14 @@ function Overview({ project, updateProject }) {
   const hasIssue   = blocked.length > 0 || stale.length > 0;
 
   // Session data
-  const projSessions = getSessions().filter(s => s.project === project.name);
-  const todaySessions = projSessions.filter(s => s.date === todayLbl());
+  const projSessions = getSessions().filter(s => sessionBelongsToProject(s, project));
+  const todaySessions = projSessions.filter(s => s.day === todayDay());
   const todaySecs     = todaySessions.reduce((a, s) => a + s.duration, 0);
   const totalSecs     = projSessions.reduce((a, s) => a + s.duration, 0);
   const lastSession   = projSessions[0] ?? null;
   const noToday       = todaySessions.length === 0;
 
-  const sessionStreak = (() => {
-    if (!projSessions.length) return 0;
-    const days = [...new Set(projSessions.map(s => s.date))].sort().reverse();
-    let k = 1, i = 0;
-    while (i < days.length - 1) {
-      if ((new Date(days[i]) - new Date(days[i + 1])) / 86400000 <= 1.5) { k++; i++; } else break;
-    }
-    return k;
-  })();
+  const streak = sessionStreak(projSessions);
 
   const today = new Date().toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" });
 
@@ -850,7 +868,7 @@ function Overview({ project, updateProject }) {
               {[
                 { Icon: Clock,       label: "Today",        value: todaySecs > 0 ? fmtDuration(todaySecs) : "—",             accent: todaySecs > 0 },
                 { Icon: TrendingUp,  label: "Total time",   value: totalSecs > 0 ? fmtDuration(totalSecs) : "—",             accent: false },
-                { Icon: Flame,       label: "Streak",       value: sessionStreak > 0 ? `${sessionStreak}d` : "—",           accent: sessionStreak >= 3, warn: false },
+                { Icon: Flame,       label: "Streak",       value: streak > 0 ? `${streak}d` : "—",           accent: streak >= 3, warn: false },
                 { Icon: Timer,       label: "Last session", value: lastSession ? fmtDuration(lastSession.duration) : "—",   accent: false, warn: noToday && !!lastSession },
               ].map(({ Icon, label, value, accent, warn }) => (
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 9px", borderRadius: "var(--rs)", background: "var(--s2)" }}>
@@ -1063,20 +1081,9 @@ function Kanban({ project, updateProject }) {
             <option value="all">All priority</option>
             {Object.keys(PRIORITY).map(k => <option key={k}>{k}</option>)}
           </select>
-          <select className="inp" style={{ width: 120, fontSize: 11 }} value={colFilter} onChange={e => setColF(e.target.value)}>
-            <option value="all">All columns</option>
-            {project.kanban.cols.map(c => <option key={c}>{c}</option>)}
-          </select>
-          <select className="inp" style={{ width: 130, fontSize: 11 }} value={sort} onChange={e => setSort(e.target.value)}>
-            <option value="col">Sort: Column</option>
-            <option value="priority">Sort: Priority</option>
-            <option value="due">Sort: Due date</option>
-            <option value="tag">Sort: Tag</option>
-          </select>
-          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--txt3)", cursor: "pointer", userSelect: "none", flexShrink: 0 }}>
-            <input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />Show done
-          </label>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--txt3)", flexShrink: 0 }}>{cards.length} tasks</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--txt3)", flexShrink: 0 }}>
+            {kanban.cards.filter(c => !c.archived && (tagFilter === "all" || c.tag === tagFilter) && (priFilter === "all" || c.priority === priFilter)).length} tasks
+          </span>
         </div>
 
         {/* Columns */}
@@ -1347,24 +1354,19 @@ function Analytics({ project }) {
   const overdueCards = cards.filter(c => isOverdue(c.due) && c.col !== "Done");
 
   // Sessions
-  const projSessions = getSessions().filter(s => s.project === project.name);
+  const projSessions = getSessions().filter(s => sessionBelongsToProject(s, project));
   const sessionCount = projSessions.length;
   const totalSecs    = projSessions.reduce((a, s) => a + s.duration, 0);
   const avgSecs      = sessionCount > 0 ? Math.round(totalSecs / sessionCount) : 0;
   const longestSecs  = sessionCount > 0 ? Math.max(...projSessions.map(s => s.duration)) : 0;
   const totalLoggedHrs = totalSecs / 3600;
 
-  const sessionStreak = (() => {
-    if (!projSessions.length) return 0;
-    const days = [...new Set(projSessions.map(s => s.date))].sort().reverse();
-    let k = 1, i = 0;
-    while (i < days.length - 1) { if ((new Date(days[i]) - new Date(days[i+1])) / 86400000 <= 1.5) { k++; i++; } else break; }
-    return k;
-  })();
+  const streak = sessionStreak(projSessions);
 
   const today = new Date().toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" });
 
   const last14 = buildLastNDays(projSessions);
+  const max14 = Math.max(...last14.map(d => d.v), 1);
 
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const dowData = DOW.map((l, di) => ({ l, v: projSessions.filter(s => new Date(s.started).getDay() === di).reduce((a, s) => a + s.duration, 0) }));
@@ -1537,8 +1539,9 @@ function useTimer() {
     setRunning(false);
     if (elapsed < 5) return;
     const session = {
-      id: uid(), project: projectName, note,
-      date: todayLbl(),
+      id: uid(), projectName, note,
+      day: todayDay(),
+      dateLabel: todayLbl(),
       started: startedAt,
       ended: new Date().toISOString(),
       duration: elapsed,
@@ -1557,7 +1560,7 @@ function TimerView({ project, timer }) {
   const [sessions,  setSessions]  = useState(getSessions);
   const [note,      setNote]      = useState("");
 
-  const projSessions = sessions.filter(s => s.project === project.name);
+  const projSessions = sessions.filter(s => sessionBelongsToProject(s, project));
 
   // Refresh session list after stop
   const handleStop = () => {
@@ -1578,17 +1581,12 @@ function TimerView({ project, timer }) {
   const avgSecs     = count > 0 ? Math.round(totalSecs / count) : 0;
   const longestSecs  = count > 0 ? Math.max(...projSessions.map(s => s.duration)) : 0;
 
-  const streak = (() => {
-    if (!count) return 0;
-    const days = [...new Set(projSessions.map(s => s.date))].sort().reverse();
-    let k = 1, i = 0;
-    while (i < days.length - 1) { if ((new Date(days[i]) - new Date(days[i+1])) / 86400000 <= 1.5) { k++; i++; } else break; }
-    return k;
-  })();
+  const streak = sessionStreak(projSessions);
 
   const today = new Date().toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" });
 
   const last14 = buildLastNDays(projSessions);
+  const max14 = Math.max(...last14.map(d => d.v), 1);
 
   return (
     <div className="scroll-area">
@@ -1623,7 +1621,7 @@ function TimerView({ project, timer }) {
       <div className="timer-grid5">
         {[
           { v: fmtDuration(totalSecs) || "0m", l: "Total time",     Icon: Clock,      c: "var(--acc)" },
-          { v: sessionCount,             l: "Sessions",       Icon: Timer,      c: "var(--txt)" },
+          { v: count,             l: "Sessions",       Icon: Timer,      c: "var(--txt)" },
           { v: fmtDuration(avgSecs) || "—",     l: "Avg session",    Icon: TrendingUp, c: "var(--txt)" },
           { v: fmtDuration(longestSecs) || "—", l: "Longest",        Icon: Flag,       c: "var(--txt)" },
           { v: `${streak}d`,             l: "Streak",         Icon: Flame,      c: streak >= 3 ? "#f97316" : "var(--txt)" },
@@ -1665,7 +1663,7 @@ function TimerView({ project, timer }) {
               <div className="session-tbl-hdr"><span>Date</span><span>Duration</span><span>Note</span><span /></div>
               {projSessions.slice(0, 30).map(s => (
                 <div key={s.id} className="session-row">
-                  <span style={{ color: "var(--txt2)" }}>{s.date}</span>
+                  <span style={{ color: "var(--txt2)" }}>{s.dateLabel || (isIsoDay(s.day) ? formatDayLabel(s.day) : "—")}</span>
                   <span style={{ fontWeight: 600, color: "var(--acc)" }}>{fmtDuration(s.duration)}</span>
                   <span style={{ color: "var(--txt3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.note || "—"}</span>
                   <button className="btn btn-ghost btn-icon btn-danger" style={{ padding: "2px", opacity: .4 }} onClick={() => deleteSession(s.id)}><Trash2 size={10} /></button>
@@ -2002,7 +2000,7 @@ export default function App() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [newProjModal, setNewProjModal] = useState(false);
   const [newProjName,  setNewProjName]  = useState("");
-  const [newProjAccent,set NewProjAccent]= useState("#6366f1");
+  const [newProjAccent, setNewProjAccent] = useState("#6366f1");
 
   const timer = useTimer();
 
