@@ -182,6 +182,16 @@ const sanitizeUrl = raw => {
   }
 };
 
+const hexToRgb = hex => {
+  const clean = String(hex || "").trim().replace("#", "");
+  if (!/^[\da-fA-F]{6}$/.test(clean)) return "124, 106, 247";
+  const int = Number.parseInt(clean, 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `${r}, ${g}, ${b}`;
+};
+
 // ─────────────────────────────────────────────────────────────
 // STORAGE  (cloud storage for project data, localStorage for sessions/scratch)
 // ─────────────────────────────────────────────────────────────
